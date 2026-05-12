@@ -7,7 +7,9 @@ import com.phy.starpicture.exception.ErrorCode;
 import com.phy.starpicture.exception.ThrowUtils;
 import com.phy.starpicture.mapper.UserMapper;
 import com.phy.starpicture.model.entity.User;
+import com.phy.starpicture.model.vo.UserVO;
 import com.phy.starpicture.service.UserService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -17,7 +19,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
-        // 校验参数
         ThrowUtils.throwIf(userAccount == null || userAccount.length() < 4,
                 ErrorCode.ACCOUNT_FORMAT_ERROR, "账号不能少于4位");
         ThrowUtils.throwIf(userPassword == null || userPassword.length() < 6,
@@ -25,24 +26,42 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         ThrowUtils.throwIf(!userPassword.equals(checkPassword),
                 ErrorCode.PASSWORD_NOT_EQUAL);
 
-        // 检查账号是否已存在
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("userAccount", userAccount);
         long count = this.count(queryWrapper);
         ThrowUtils.throwIf(count > 0, ErrorCode.USER_EXIST);
 
-        // 密码加密
         String encryptPassword = DigestUtil.md5Hex(SALT + userPassword);
 
-        // 保存用户
         User user = new User();
         user.setUserAccount(userAccount);
         user.setUserPassword(encryptPassword);
         user.setUserName(userAccount);
         user.setUserRole("user");
         boolean saved = this.save(user);
-        ThrowUtils.throwIf(!saved, ErrorCode.SYSTEM_ERROR, "注册失败");
+        ThrowUtils.throwIf(!saved, ErrorCode.SYSTEM_ERROR, "注册失败，请稍后再试");
 
         return user.getId();
+    }
+
+    @Override
+    public UserVO userLogin(String userAccount, String userPassword) {
+        ThrowUtils.throwIf(userAccount == null || userAccount.length() < 4,
+                ErrorCode.ACCOUNT_FORMAT_ERROR, "账号不能少于4位");
+        ThrowUtils.throwIf(userPassword == null || userPassword.length() < 6,
+                ErrorCode.PASSWORD_FORMAT_ERROR, "密码不能少于6位");
+
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("userAccount", userAccount);
+        User user = this.getOne(queryWrapper);
+        ThrowUtils.throwIf(user == null, ErrorCode.USER_NOT_EXIST, "账号或密码错误");
+
+        String encryptPassword = DigestUtil.md5Hex(SALT + userPassword);
+        ThrowUtils.throwIf(!encryptPassword.equals(user.getUserPassword()),
+                ErrorCode.PASSWORD_ERROR, "账号或密码错误");
+
+        UserVO userVO = new UserVO();
+        BeanUtils.copyProperties(user, userVO);
+        return userVO;
     }
 }

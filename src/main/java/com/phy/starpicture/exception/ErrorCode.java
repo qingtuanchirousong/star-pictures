@@ -17,7 +17,8 @@ public enum ErrorCode {
     PASSWORD_ERROR(40002, "密码错误"),
     PASSWORD_NOT_EQUAL(40003, "两次输入密码不一致"),
     ACCOUNT_FORMAT_ERROR(40004, "账号格式不正确"),
-    PASSWORD_FORMAT_ERROR(40005, "密码格式不正确");
+    PASSWORD_FORMAT_ERROR(40005, "密码格式不正确"),
+    USER_NOT_EXIST(40006, "账号不存在");
 
     /**
      * 状态码
