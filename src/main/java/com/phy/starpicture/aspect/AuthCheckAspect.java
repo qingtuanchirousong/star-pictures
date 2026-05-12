@@ -20,21 +20,21 @@ public class AuthCheckAspect {
     @Before("@annotation(authCheck)")
     public void checkAuth(AuthCheck authCheck) {
         // TODO: 开发环境临时跳过验证，生产环境请删除以下 return 语句
-        return;
 
-//        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
-//        HttpSession session = attributes.getRequest().getSession();
-//        UserVO loginUser = (UserVO) session.getAttribute(UserConstant.USER_LOGIN_STATE);
-//        if (loginUser == null) {
-//            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "请先登录");
-//        }
-//
-//        String requiredRole = authCheck.requiredRole();
-//        if (requiredRole != null && !requiredRole.isEmpty()) {
-//            String userRole = loginUser.getUserRole();
-//            if (!requiredRole.equals(userRole)) {
-//                throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限，需要 " + requiredRole + " 角色");
-//            }
-//        }
+
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+        HttpSession session = attributes.getRequest().getSession();
+        UserVO loginUser = (UserVO) session.getAttribute(UserConstant.USER_LOGIN_STATE);
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "请先登录");
+        }
+
+        String requiredRole = authCheck.requiredRole();
+        if (requiredRole != null && !requiredRole.isEmpty()) {
+            String userRole = loginUser.getUserRole();
+            if (!requiredRole.equals(userRole)) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限，需要 " + requiredRole + " 角色");
+            }
+        }
     }
 }
