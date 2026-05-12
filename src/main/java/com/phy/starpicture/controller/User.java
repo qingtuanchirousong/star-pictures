@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.phy.starpicture.demos.web;
+package com.phy.starpicture.controller;
 
 /**
  * @author <a href="mailto:chenxilzx1@gmail.com">theonefx</a>
