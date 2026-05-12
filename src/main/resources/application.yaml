@@ -9,12 +9,13 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 20MB
+
   # 数据库配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/star_picture
     username: root
-    password: ${MYSQL_PASSWORD:1234}
+    password: 1234
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher
@@ -39,7 +40,7 @@ mybatis-plus:
 #对象存储配置
 tencent:
   cos:
-    # 腾讯云 SecretId（通过环境变量或启动参数注入）
+    # 腾讯云 SecretId （通过环境变量或启动参数注入）
     secret-id: ${TENCENT_COS_SECRET_ID:}
     # 腾讯云 SecretKey
     secret-key: ${TENCENT_COS_SECRET_KEY:}
