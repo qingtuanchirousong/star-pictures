@@ -1,4 +1,4 @@
-package com.phy.starpicture.controller;
+package com.phy.starpicture.controller.admin;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.phy.starpicture.annotation.AuthCheck;
@@ -6,13 +6,10 @@ import com.phy.starpicture.common.BaseResponse;
 import com.phy.starpicture.common.DeleteRequest;
 import com.phy.starpicture.common.ResultUtils;
 import com.phy.starpicture.constant.UserConstant;
-import com.phy.starpicture.exception.BusinessException;
 import com.phy.starpicture.exception.ErrorCode;
 import com.phy.starpicture.exception.ThrowUtils;
 import com.phy.starpicture.model.dto.user.UserCreateRequest;
-import com.phy.starpicture.model.dto.user.UserLoginRequest;
 import com.phy.starpicture.model.dto.user.UserQueryRequest;
-import com.phy.starpicture.model.dto.user.UserRegisterRequest;
 import com.phy.starpicture.model.dto.user.UserUpdateRequest;
 import com.phy.starpicture.model.entity.User;
 import com.phy.starpicture.model.vo.UserVO;
@@ -28,60 +25,23 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.Resource;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
 
-@Api(tags = "用户管理")
+/**
+ * 管理员端 — 用户管理控制器
+ * 提供用户的创建、删除、更新、分页查询等管理接口，仅管理员可访问。
+ */
+@Api(tags = "管理员-用户管理")
 @RestController
-@RequestMapping("/user")
-public class UserController {
+@RequestMapping("/admin/user")
+public class AdminUserController {
 
     @Resource
     private UserService userService;
 
-    @ApiOperation("用户注册")
-    @PostMapping("/register")
-    public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest request) {
-        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
-        long userId = userService.userRegister(
-                request.getUserAccount(),
-                request.getUserPassword(),
-                request.getCheckPassword());
-        return ResultUtils.success(userId);
-    }
-
-    @ApiOperation("用户登录")
-    @PostMapping("/login")
-    public BaseResponse<UserVO> userLogin(@RequestBody UserLoginRequest request, HttpServletRequest httpRequest) {
-        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
-        UserVO userVO = userService.userLogin(
-                request.getUserAccount(),
-                request.getUserPassword());
-        httpRequest.getSession().setAttribute(UserConstant.USER_LOGIN_STATE, userVO);
-        return ResultUtils.success(userVO);
-    }
-
-    @ApiOperation("用户注销")
-    @AuthCheck
-    @PostMapping("/logout")
-    public BaseResponse<Boolean> userLogout(HttpServletRequest httpRequest) {
-        HttpSession session = httpRequest.getSession(false);
-        if (session != null) {
-            session.removeAttribute(UserConstant.USER_LOGIN_STATE);
-        }
-        return ResultUtils.success(true);
-    }
-
-    @ApiOperation("获取当前登录用户")
-    @AuthCheck
-    @GetMapping("/current")
-    public BaseResponse<UserVO> getLoginUser(HttpServletRequest httpRequest) {
-        UserVO loginUser = (UserVO) httpRequest.getSession()
-                .getAttribute(UserConstant.USER_LOGIN_STATE);
-        return ResultUtils.success(loginUser);
-    }
-
-    @ApiOperation("【管理员】创建用户")
+    /**
+     * 创建用户（管理员操作）
+     */
+    @ApiOperation("创建用户")
     @AuthCheck(requiredRole = UserConstant.ADMIN_ROLE)
     @PostMapping("/create")
     public BaseResponse<Long> userCreate(@RequestBody UserCreateRequest request) {
@@ -94,7 +54,10 @@ public class UserController {
         return ResultUtils.success(userId);
     }
 
-    @ApiOperation("【管理员】根据 id 删除用户")
+    /**
+     * 删除用户（管理员操作）
+     */
+    @ApiOperation("删除用户")
     @AuthCheck(requiredRole = UserConstant.ADMIN_ROLE)
     @PostMapping("/delete")
     public BaseResponse<Boolean> userDelete(@RequestBody DeleteRequest request) {
@@ -103,7 +66,10 @@ public class UserController {
         return ResultUtils.success(result);
     }
 
-    @ApiOperation("【管理员】更新用户")
+    /**
+     * 更新用户信息（管理员操作）
+     */
+    @ApiOperation("更新用户")
     @AuthCheck(requiredRole = UserConstant.ADMIN_ROLE)
     @PostMapping("/update")
     public BaseResponse<Boolean> userUpdate(@RequestBody UserUpdateRequest request) {
@@ -114,7 +80,10 @@ public class UserController {
         return ResultUtils.success(result);
     }
 
-    @ApiOperation("【管理员】分页获取用户列表（脱敏）")
+    /**
+     * 分页查询用户列表（管理员操作，返回脱敏数据）
+     */
+    @ApiOperation("分页获取用户列表")
     @AuthCheck(requiredRole = UserConstant.ADMIN_ROLE)
     @PostMapping("/list/page")
     public BaseResponse<Page<UserVO>> userListByPage(@RequestBody UserQueryRequest request) {
@@ -123,19 +92,14 @@ public class UserController {
         return ResultUtils.success(voPage);
     }
 
-    @ApiOperation("【管理员】根据 id 获取用户（未脱敏）")
+    /**
+     * 根据 id 获取用户原始信息（管理员操作，含敏感字段）
+     */
+    @ApiOperation("根据 id 获取用户（未脱敏）")
     @AuthCheck(requiredRole = UserConstant.ADMIN_ROLE)
     @GetMapping("/get/{id}")
     public BaseResponse<User> getUserById(@PathVariable long id) {
         User user = userService.getUserById(id);
         return ResultUtils.success(user);
-    }
-
-    @ApiOperation("根据 id 获取用户（脱敏）")
-    @AuthCheck
-    @GetMapping("/get/vo/{id}")
-    public BaseResponse<UserVO> getUserVOById(@PathVariable long id) {
-        UserVO userVO = userService.getUserVOById(id);
-        return ResultUtils.success(userVO);
     }
 }

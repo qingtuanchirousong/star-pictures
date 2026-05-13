@@ -158,6 +158,19 @@ public class CosManager {
     }
 
     /**
+     * 拼装存储 key：路径前缀 + UUID + 文件名后缀
+     */
+    private String buildFileKeyFromName(String filename, String pathPrefix) {
+        String suffix = "";
+        if (StrUtil.isNotBlank(filename) && filename.contains(".")) {
+            suffix = filename.substring(filename.lastIndexOf("."));
+        } else {
+            suffix = ".jpg";
+        }
+        return (StrUtil.isBlank(pathPrefix) ? "file/" : pathPrefix) + IdUtil.simpleUUID() + suffix;
+    }
+
+    /**
      * 拼装存储 key：路径前缀 + UUID + 原文件后缀
      */
     private String buildFileKey(MultipartFile multipartFile, String pathPrefix) {
@@ -179,6 +192,39 @@ public class CosManager {
             IoUtil.copy(inputStream, outputStream);
         }
         return file;
+    }
+
+    /**
+     * 从字节数组上传图片并通过数据万象解析图片信息
+     * 适用于不需要 MultipartFile 的场景（如批量抓取网络图片）。
+     *
+     * @param imageBytes      图片字节数组
+     * @param originalFilename 原始文件名（用于提取后缀）
+     * @param pathPrefix      COS 存储路径前缀
+     * @return UploadWithPicResult 包含 COS key 和 CI 解析结果
+     */
+    public UploadWithPicResult uploadPictureFromBytes(byte[] imageBytes, String originalFilename, String pathPrefix) {
+        String key = buildFileKeyFromName(originalFilename, pathPrefix);
+
+        File tempFile = null;
+        try {
+            tempFile = File.createTempFile("cos_batch_", ".tmp");
+            cn.hutool.core.io.FileUtil.writeBytes(imageBytes, tempFile);
+
+            PutObjectRequest request = new PutObjectRequest(cosConfig.getBucket(), key, tempFile);
+            request.setStorageClass(StorageClass.Standard);
+
+            PicOperations picOps = new PicOperations();
+            picOps.setIsPicInfo(1);
+            request.setPicOperations(picOps);
+
+            PutObjectResult result = cosClient.putObject(request);
+            return new UploadWithPicResult(key, result.getCiUploadResult());
+        } catch (IOException e) {
+            throw new RuntimeException("图片上传失败", e);
+        } finally {
+            deleteTempFile(tempFile);
+        }
     }
 
     /**

@@ -1,21 +1,17 @@
-package com.phy.starpicture.controller;
+package com.phy.starpicture.controller.user;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.phy.starpicture.annotation.AuthCheck;
 import com.phy.starpicture.common.BaseResponse;
 import com.phy.starpicture.common.DeleteRequest;
 import com.phy.starpicture.common.ResultUtils;
-import com.phy.starpicture.constant.UserConstant;
 import com.phy.starpicture.exception.ErrorCode;
 import com.phy.starpicture.exception.ThrowUtils;
 import com.phy.starpicture.model.dto.picture.PictureEditRequest;
 import com.phy.starpicture.model.dto.picture.PictureQueryRequest;
-import com.phy.starpicture.model.dto.picture.PictureReviewRequest;
-import com.phy.starpicture.model.entity.Picture;
 import com.phy.starpicture.model.vo.PictureVO;
 import com.phy.starpicture.model.vo.UserVO;
 import com.phy.starpicture.service.PictureService;
-import com.phy.starpicture.service.UserService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,8 +28,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 /**
- * 图片管理控制器
- * 提供图片上传、分页查询、审核、编辑、删除等接口。
+ * 用户端 — 图片控制器
+ * 提供图片上传、浏览、编辑、删除等面向普通用户的接口。
+ * 管理员端的审核接口在 controller/admin/AdminPictureController 中。
  */
 @Api(tags = "图片管理")
 @RestController
@@ -45,9 +42,6 @@ public class PictureController {
 
     @Resource
     private PictureService pictureService;
-
-    @Resource
-    private UserService userService;
 
     /**
      * 获取当前登录用户（从 session 中取出）
@@ -62,9 +56,10 @@ public class PictureController {
     /**
      * 上传图片
      * 支持首次上传和重新上传（传入 pictureId 时只更新图片文件，基础信息不变）。
+     * 管理员上传自动过审，普通用户上传进入待审核状态。
      */
     @ApiOperation("上传图片（支持重新上传）")
-    
+    @AuthCheck
     @PostMapping("/upload")
     public BaseResponse<PictureVO> uploadPicture(
             @RequestParam("file") MultipartFile file,
@@ -78,7 +73,7 @@ public class PictureController {
 
     /**
      * 分页查询图片列表
-     * 管理员可查看所有状态，普通用户只能看到审核通过的图片。
+     * 普通用户只能看到审核通过的图片，管理员可查看全部状态。
      */
     @ApiOperation("分页查询图片列表")
     @AuthCheck
@@ -92,44 +87,21 @@ public class PictureController {
 
     /**
      * 根据 id 获取单张图片详情
+     * 普通用户只能查看已审核通过的图片。
      */
-    @ApiOperation("获取图片详情")
+    @ApiOperation("获取图片详情（带 Redis 缓存）")
     @AuthCheck
     @GetMapping("/get/{id}")
     public BaseResponse<PictureVO> getPictureById(@PathVariable Long id, HttpServletRequest request) {
         UserVO loginUser = getLoginUser(request);
-        Picture picture = pictureService.getById(id);
-        ThrowUtils.throwIf(picture == null || picture.getIsDelete() == 1,
-                ErrorCode.NOT_FOUND_ERROR, "图片不存在");
-
-        // 普通用户只能查看已审核通过的图片
-        boolean isAdmin = UserConstant.ADMIN_ROLE.equals(loginUser.getUserRole());
-        if (!isAdmin && picture.getReviewStatus() != 1) {
-            ThrowUtils.throwIf(true, ErrorCode.NOT_FOUND_ERROR, "图片不存在或未审核通过");
-        }
-
-        // 填充上传者信息
-        PictureVO vo = PictureVO.of(picture);
-        UserVO uploader = userService.getUserVOById(picture.getUserId());
-        vo.setUser(uploader);
+        // 缓存优先，写操作（编辑/删除/审核）自动清除缓存
+        PictureVO vo = pictureService.getPictureDetailById(id, loginUser);
         return ResultUtils.success(vo);
     }
 
     /**
-     * 管理员审核图片（通过或拒绝，填写审核意见）
-     */
-    @ApiOperation("审核图片（管理员）")
-    @AuthCheck(requiredRole = UserConstant.ADMIN_ROLE)
-    @PostMapping("/review")
-    public BaseResponse<Boolean> reviewPicture(@RequestBody PictureReviewRequest reviewRequest,
-                                               HttpServletRequest request) {
-        UserVO loginUser = getLoginUser(request);
-        pictureService.reviewPicture(reviewRequest, loginUser);
-        return ResultUtils.success(true);
-    }
-
-    /**
      * 编辑图片元数据（名称、简介、分类、标签）
+     * 仅图片所有者或管理员可编辑。
      */
     @ApiOperation("编辑图片信息")
     @AuthCheck
@@ -143,6 +115,7 @@ public class PictureController {
 
     /**
      * 删除图片（逻辑删除）
+     * 仅图片所有者或管理员可删除。
      */
     @ApiOperation("删除图片")
     @AuthCheck

@@ -1,18 +1,14 @@
-package com.phy.starpicture.controller;
+package com.phy.starpicture.controller.user;
 
-import com.phy.starpicture.annotation.AuthCheck;
 import com.phy.starpicture.common.BaseResponse;
 import com.phy.starpicture.common.ResultUtils;
-import com.phy.starpicture.constant.UserConstant;
 import com.phy.starpicture.manager.CosManager;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.servlet.ServletOutputStream;
@@ -20,6 +16,11 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URLEncoder;
 
+/**
+ * 用户端 — 文件控制器
+ * 提供文件下载等面向普通用户的接口。
+ * 管理员专用的上传接口在 controller/admin/AdminFileController 中。
+ */
 @Api(tags = "文件管理")
 @RestController
 @RequestMapping("/file")
@@ -28,14 +29,10 @@ public class FileController {
     @Resource
     private CosManager cosManager;
 
-    @ApiOperation("【管理员】上传文件")
-    @AuthCheck(requiredRole = UserConstant.ADMIN_ROLE)
-    @PostMapping("/upload")
-    public BaseResponse<String> uploadFile(@RequestParam("file") MultipartFile file) {
-        String url = cosManager.uploadFile(file, "picture/");
-        return ResultUtils.success(url);
-    }
-
+    /**
+     * 下载文件
+     * 根据 COS 文件 key 从对象存储下载文件。
+     */
     @ApiOperation("下载文件")
     @GetMapping("/download")
     public void downloadFile(@RequestParam("fileKey") String fileKey, HttpServletResponse response) {
@@ -49,6 +46,9 @@ public class FileController {
         }
     }
 
+    /**
+     * 对文件名进行 URL 编码，解决中文文件名问题
+     */
     private String encodeFileName(String key) {
         String name = key.contains("/") ? key.substring(key.lastIndexOf("/") + 1) : key;
         try {
