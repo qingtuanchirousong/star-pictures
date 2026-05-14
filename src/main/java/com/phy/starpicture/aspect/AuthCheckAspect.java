@@ -19,7 +19,6 @@ public class AuthCheckAspect {
 
     @Before("@annotation(authCheck)")
     public void checkAuth(AuthCheck authCheck) {
-        // TODO: 开发环境临时跳过验证，生产环境请删除以下 return 语句
 
 
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();

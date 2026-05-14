@@ -21,6 +21,9 @@ import com.phy.starpicture.model.vo.UserVO;
 import com.phy.starpicture.service.PictureService;
 import com.phy.starpicture.service.UserService;
 import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.phy.starpicture.manager.TwoLevelCacheManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -55,6 +58,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
     @Resource
     private BingImageFetcher bingImageFetcher;
+
+    @Resource
+    private TwoLevelCacheManager cacheManager;
+
+    @Resource
+    private ObjectMapper objectMapper;
 
     /**
      * 上传图片，支持首次上传和重新上传。
@@ -96,6 +105,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             boolean updated = this.updateById(dbPicture);
             ThrowUtils.throwIf(!updated, ErrorCode.SYSTEM_ERROR, "更新图片失败");
 
+            // 清除分页缓存，保证下次查询数据一致
+            cacheManager.evictPictureListCache();
+
             PictureVO vo = PictureVO.of(dbPicture);
             vo.setUser(loginUser);
             return vo;
@@ -103,6 +115,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             // 首次上传：新增一条图片记录
             boolean saved = this.save(picture);
             ThrowUtils.throwIf(!saved, ErrorCode.SYSTEM_ERROR, "上传图片失败");
+
+            // 清除分页缓存，保证下次查询数据一致
+            cacheManager.evictPictureListCache();
 
             PictureVO vo = PictureVO.of(picture);
             vo.setUser(loginUser);
@@ -116,50 +131,64 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      */
     @Override
     public Page<PictureVO> listPictureByPage(PictureQueryRequest queryRequest, UserVO loginUser) {
-        // 构建查询条件
-        QueryWrapper<Picture> qw = new QueryWrapper<>();
-        // 逻辑删除：只查未删除的
-        qw.eq("isDelete", 0);
-
-        // 名称模糊搜索
-        if (StrUtil.isNotBlank(queryRequest.getName())) {
-            qw.like("name", queryRequest.getName());
-        }
-        // 分类精确匹配
-        if (StrUtil.isNotBlank(queryRequest.getCategory())) {
-            qw.eq("category", queryRequest.getCategory());
-        }
-        // 审核状态过滤：管理员可按指定状态筛选，普通用户强制只看已通过的
+        // 构建缓存 key：包含用户角色和所有查询参数，确保不同查询条件各自缓存
         boolean isAdmin = UserConstant.ADMIN_ROLE.equals(loginUser.getUserRole());
-        if (isAdmin && queryRequest.getReviewStatus() != null) {
-            qw.eq("reviewStatus", queryRequest.getReviewStatus());
-        } else if (!isAdmin) {
-            qw.eq("reviewStatus", PictureConstant.REVIEW_STATUS_APPROVED);
-        }
+        String cacheKey = new StringBuilder("picPage:")
+                .append("uid:").append(loginUser.getId())
+                .append(":role:").append(isAdmin ? "admin" : "user")
+                .append(":name:").append(StrUtil.nullToDefault(queryRequest.getName(), ""))
+                .append(":cat:").append(StrUtil.nullToDefault(queryRequest.getCategory(), ""))
+                .append(":rev:").append(queryRequest.getReviewStatus())
+                .append(":page:").append(queryRequest.getCurrent())
+                .append(":size:").append(queryRequest.getPageSize())
+                .toString();
 
-        // 排序：按编辑时间倒序
-        qw.orderByDesc("editTime");
+        // Page<PictureVO> 的泛型类型，用于 JSON 反序列化
+        JavaType javaType = objectMapper.getTypeFactory()
+                .constructParametricType(Page.class, PictureVO.class);
 
-        // 分页查询
-        Page<Picture> page = this.page(new Page<>(queryRequest.getCurrent(), queryRequest.getPageSize()), qw);
+        // 使用二级缓存：L1(Caffeine) → L2(Redis) → DB
+        return cacheManager.get(cacheKey, javaType, () -> {
+            // 构建查询条件
+            QueryWrapper<Picture> qw = new QueryWrapper<>();
+            qw.eq("isDelete", 0); // 逻辑删除过滤
 
-        // 收集所有上传者 userId，批量查询用户信息
-        Set<Long> userIds = page.getRecords().stream()
-                .map(Picture::getUserId)
-                .collect(Collectors.toSet());
-        Map<Long, UserVO> userMap = userIds.stream()
-                .map(id -> userService.getUserVOById(id))
-                .collect(Collectors.toMap(UserVO::getId, vo -> vo));
+            if (StrUtil.isNotBlank(queryRequest.getName())) {
+                qw.like("name", queryRequest.getName());
+            }
+            if (StrUtil.isNotBlank(queryRequest.getCategory())) {
+                qw.eq("category", queryRequest.getCategory());
+            }
+            // 审核状态过滤：管理员按指定状态筛选，普通用户强制只看已通过
+            if (isAdmin && queryRequest.getReviewStatus() != null) {
+                qw.eq("reviewStatus", queryRequest.getReviewStatus());
+            } else if (!isAdmin) {
+                qw.eq("reviewStatus", PictureConstant.REVIEW_STATUS_APPROVED);
+            }
 
-        // 转换为 PictureVO 并填充用户信息
-        Page<PictureVO> voPage = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
-        voPage.setRecords(page.getRecords().stream().map(picture -> {
-            PictureVO vo = PictureVO.of(picture);
-            vo.setUser(userMap.get(picture.getUserId()));
-            return vo;
-        }).collect(Collectors.toList()));
+            qw.orderByDesc("editTime");
 
-        return voPage;
+            // 分页查询
+            Page<Picture> page = this.page(new Page<>(queryRequest.getCurrent(), queryRequest.getPageSize()), qw);
+
+            // 批量查询上传者信息
+            Set<Long> userIds = page.getRecords().stream()
+                    .map(Picture::getUserId)
+                    .collect(Collectors.toSet());
+            Map<Long, UserVO> userMap = userIds.stream()
+                    .map(id -> userService.getUserVOById(id))
+                    .collect(Collectors.toMap(UserVO::getId, vo -> vo));
+
+            // 转换为 PictureVO 并填充用户信息
+            Page<PictureVO> voPage = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
+            voPage.setRecords(page.getRecords().stream().map(picture -> {
+                PictureVO vo = PictureVO.of(picture);
+                vo.setUser(userMap.get(picture.getUserId()));
+                return vo;
+            }).collect(Collectors.toList()));
+
+            return voPage;
+        });
     }
 
     /**
@@ -216,6 +245,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
         boolean updated = this.updateById(picture);
         ThrowUtils.throwIf(!updated, ErrorCode.SYSTEM_ERROR, "审核操作失败");
+
+        // 清除分页缓存
+        cacheManager.evictPictureListCache();
     }
 
     /**
@@ -252,6 +284,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
         boolean updated = this.updateById(picture);
         ThrowUtils.throwIf(!updated, ErrorCode.SYSTEM_ERROR, "编辑图片失败");
+
+        // 清除分页缓存
+        cacheManager.evictPictureListCache();
     }
 
     /**
@@ -274,6 +309,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         // MyBatis-Plus 逻辑删除：将 isDelete 置为 1
         boolean removed = this.removeById(id);
         ThrowUtils.throwIf(!removed, ErrorCode.SYSTEM_ERROR, "删除图片失败");
+
+        // 清除分页缓存
+        cacheManager.evictPictureListCache();
     }
 
     // ──────────────────────── 私有辅助方法 ────────────────────────
@@ -369,6 +407,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         }
 
         ThrowUtils.throwIf(resultList.isEmpty(), ErrorCode.OPERATION_ERROR, "所有图片抓取均失败，请稍后重试");
+
+        // 批量入库后清除分页缓存
+        cacheManager.evictPictureListCache();
         return resultList;
     }
 
